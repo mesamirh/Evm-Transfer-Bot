@@ -5,6 +5,7 @@ A real-time Ethereum token monitoring and auto-transfer bot that automatically d
 ## ✨ Features
 
 - **24/7 Real-time Monitoring** - Continuously monitors your wallet for incoming ERC-20 token transfers
+- **Multi-Network Support** - Supports Ethereum, Arbitrum, Base, and Polygon networks
 - **Automatic Token Transfer** - Automatically transfers detected tokens after a configurable delay
 - **Token Information Display** - Shows token name, symbol, and formatted balance
 - **Custom Token Support** - Monitor specific token contracts manually
@@ -45,10 +46,23 @@ A real-time Ethereum token monitoring and auto-transfer bot that automatically d
 3. **Configure environment variables:**
    Create a `.env` file in the project root:
    ```env
-   PRIVATE_KEY=your_private_key_here
-   RPC_URL=https://eth1.lava.build
-   RECIPIENT_ADDRESS=0xYourRecipientAddressHere
-   CUSTOM_TOKENS=0xTokenAddress1,0xTokenAddress2,0xTokenAddress3
+    PRIVATE_KEY=your_private_key_here
+    RECIPIENT_ADDRESS=0xYourRecipientAddressHere
+
+    # Ethereum (Mainnet)
+    RPC_URL=https://eth1.lava.build
+
+    # Arbitrum
+    ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
+
+    # Base
+    BASE_RPC_URL=https://mainnet.base.org
+
+    # Polygon
+    POLYGON_RPC_URL=https://polygon-rpc.com
+
+    # Optional: Custom tokens to monitor across all networks
+    CUSTOM_TOKENS=0xTokenAddress1,0xTokenAddress2,0xTokenAddress3
    ```
 
 ## ⚙️ Configuration
@@ -58,8 +72,18 @@ A real-time Ethereum token monitoring and auto-transfer bot that automatically d
 | Variable            | Description                                   | Example                         |
 | ------------------- | --------------------------------------------- | ------------------------------- |
 | `PRIVATE_KEY`       | Your wallet's private key (without 0x prefix) | `5dc578f0c46add36290e2cd2...`   |
-| `RPC_URL`           | Ethereum RPC endpoint                         | `https://eth1.lava.build`       |
 | `RECIPIENT_ADDRESS` | Address to send tokens to                     | `0x742d35Cc6Ab6B3c4848b866C...` |
+
+### Network RPC URLs
+
+You must provide at least one of the following RPC URLs for the bot to monitor the corresponding network.
+
+| Variable           | Description           | Example                        |
+| ------------------ | --------------------- | ------------------------------ |
+| `RPC_URL`          | Ethereum RPC endpoint | `https://eth1.lava.build`      |
+| `ARBITRUM_RPC_URL` | Arbitrum RPC endpoint | `https://arb1.arbitrum.io/rpc` |
+| `BASE_RPC_URL`     | Base RPC endpoint     | `https://mainnet.base.org`     |
+| `POLYGON_RPC_URL`  | Polygon RPC endpoint  | `https://polygon-rpc.com`      |
 
 ### Optional Environment Variables
 
@@ -78,39 +102,31 @@ A real-time Ethereum token monitoring and auto-transfer bot that automatically d
 2. **Expected output:**
 
    ```
-   🤖 Auto-Transfer Bot Started
-   📍 Monitoring wallet: 0x67b25dcf85301a786a225f1d89dd48fb7a0d602e
+   🤖 Auto-Transfer Bot Starting for 4 network(s)...
    📤 Auto-transfer to: 0xYourRecipientAddress
-   ⚡ Transfer delay: 1 minute
 
-   🔍 Monitoring for incoming tokens...
-   Press Ctrl+C to stop
+   [Ethereum] 🤖 Auto-Transfer Bot Started
+   [Ethereum]  Monitoring wallet: 0x67b25dcf85301a786a225f1d89dd48fb7a0d602e
+   [Ethereum] 📤 Auto-transfer to: 0xYourRecipientAddress
+   [Ethereum] ⚡ Transfer delay: 1 minute
 
-   ✅ Bot is now running 24/7...
+   [Arbitrum] 🤖 Auto-Transfer Bot Started
+   ...
    ```
 
 3. **When tokens are received:**
    ```
-   📨 Incoming token detected:
+   [Ethereum] 📨 Incoming token detected:
       Token: 0xA0b86a33E6441b8F73EaacD6D2A5b8cDaE92cf7B
       TxHash: 0x123abc...
       Wrapped Bitcoin (WBTC)
-   ⏱️  Waiting 1 minute before auto-transfer...
-   🔄 Transferring 0.001 WBTC (Wrapped Bitcoin)...
-   ✅ Transferred 0.001 WBTC!
+   [Ethereum] ⏱️  Waiting 1 minute before auto-transfer...
+   [Ethereum] 🔄 Transferring 0.001 WBTC (Wrapped Bitcoin)...
+   [Ethereum] ✅ Transferred 0.001 WBTC!
       TxHash: 0x456def...
    ```
 
 ## 🔧 Customization
-
-### Change Transfer Delay
-
-To modify the transfer delay, edit the timeout value in `main.js`:
-
-```javascript
-// Wait 1 minute before transferring (60000ms)
-await new Promise((resolve) => setTimeout(resolve, 60000));
-```
 
 ### Add Custom Tokens
 
@@ -131,9 +147,8 @@ CUSTOM_TOKENS=0xA0b86a33E6441b8F73EaacD6D2A5b8cDaE92cf7B,0xdAC17F958D2ee523a2206
 
 - **Private Key Security**: Never share your private key or commit it to version control
 - **Test First**: Test on testnet before using on mainnet
-- **Gas Fees**: Ensure the monitored wallet has sufficient ETH for gas fees
+- **Gas Fees**: Ensure the monitored wallet has sufficient native currency (ETH, ARB, etc.) for gas fees on each network
 - **RPC Limits**: Some RPC providers have rate limits; adjust accordingly
-- **Network**: This bot is configured for Ethereum mainnet by default
 
 ## 📊 Monitoring & Logs
 
@@ -174,11 +189,11 @@ To stop the bot, press `Ctrl+C` in the terminal. The bot will shut down graceful
 
 2. **"Failed to connect to RPC"**
 
-   - Check your `RPC_URL` and internet connection
+   - Check your RPC URLs and internet connection
 
 3. **"Insufficient funds for gas"**
 
-   - Ensure your wallet has enough ETH for transaction fees
+   - Ensure your wallet has enough native currency for transaction fees on each network
 
 4. **Bot stops unexpectedly**
    - Check console logs for error messages

